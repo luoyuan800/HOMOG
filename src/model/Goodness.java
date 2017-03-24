@@ -9,6 +9,7 @@ public class Goodness implements Model {
     private double fix;
     private int year;
     private Model ext;
+    private int count;
 
     @Override
     public String getId() {
@@ -49,5 +50,13 @@ public class Goodness implements Model {
 
     public void setExt(Model ext) {
         this.ext = ext;
+    }
+
+    public int getCount() {
+        return count;
+    }
+
+    public void setCount(int count) {
+        this.count = count;
     }
 }

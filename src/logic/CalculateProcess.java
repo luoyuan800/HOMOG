@@ -1,6 +1,7 @@
 package logic;
 
 import db.DBHelper;
+import model.Goodness;
 import model.Industry;
 import model.Rate;
 import model.Stock;
@@ -21,11 +22,11 @@ import java.util.Set;
 /**
  * Created by gluo on 3/23/2017.
  */
-public class MainProcess {
+public class CalculateProcess {
     private final DBHelper dbHelper;
     private String dataFile;
 
-    public MainProcess(String db, String data) throws SQLException {
+    public CalculateProcess(String db, String data) throws SQLException {
         this.dbHelper = new DBHelper(db);
         dataFile = data;
     }
@@ -52,6 +53,80 @@ public class MainProcess {
         readStockDataIntoDB();
         calculateIndustryRate();
         Log.info("finished pre data calculate. Now all data have been ave to database");
+    }
+
+    public void calculateIndustryFixGoodness() {
+        for (Industry industry : dbHelper.queryIndustry()) {
+            List<Integer> years = dbHelper.getYears();
+            for (int i = 0; i < years.size() - 2; i++) {
+                List<Stock> stocks = dbHelper.queryStockByIndustry(industry.getId());
+                double total = 0;
+                for (Stock stock : stocks) {
+                    Goodness stockGoodness = dbHelper.queryGoodnessByYear(stock.getId(), years.get(i));
+                    if (stockGoodness != null)
+                        total += stockGoodness.getFix();
+                }
+                total /= stocks.size();
+                Goodness goodness = new Goodness();
+                goodness.setFix(total);
+                goodness.setExt(industry);
+                goodness.setYear(years.get(i));
+                goodness.setCount(36);
+                dbHelper.save(goodness);
+            }
+        }
+    }
+
+    public void calculateStockFixGoodness() {
+        for (Stock stock : dbHelper.queryStock()) {
+            List<Integer> years = dbHelper.getYears();
+            for (int i = 0; i < years.size() - 2; i++) {
+                Goodness stockGoodness = dbHelper.queryGoodnessByYear(stock.getId(), years.get(i));
+                if(stockGoodness!=null) {
+                    int count = stockGoodness.getCount();
+                    stockGoodness.setFix((count - 1) / (count - 2) * (1 - stockGoodness.getNormal()));
+                    dbHelper.update(stockGoodness);
+                }
+            }
+        }
+    }
+
+    public void calculateStockGoodness() {
+        for (Stock stock : dbHelper.queryStock()) {
+            List<Integer> years = dbHelper.getYears();
+            for (int i = 0; i < years.size() - 2; i++) {
+                Map<String, Rate> rateByMouth = new HashMap<>();
+
+                for (Rate rate : dbHelper.getRateByYear(stock.getId(), years.get(i))) {
+                    rateByMouth.put(rate.getMonth() + "@" + rate.getYear(), rate);
+                    rate.setExt(stock);
+                }
+                for (Rate rate : dbHelper.getRateByYear(stock.getId(), years.get(i + 1))) {
+                    rateByMouth.put(rate.getMonth() + "@" + rate.getYear(), rate);
+                    rate.setExt(stock);
+                }
+                for (Rate rate : dbHelper.getRateByYear(stock.getId(), years.get(i + 2))) {
+                    rateByMouth.put(rate.getMonth() + "@" + rate.getYear(), rate);
+                    rate.setExt(stock);
+                }
+
+                List<Rate> industryYearRates = dbHelper.getRateByYear(stock.getIndustry(), years.get(i));
+                industryYearRates.addAll(dbHelper.getRateByYear(stock.getIndustry(), years.get(i + 1)));
+                industryYearRates.addAll(dbHelper.getRateByYear(stock.getIndustry(), years.get(i + 2)));
+                for (Rate rate : industryYearRates) {
+                    Rate stockRate = rateByMouth.get(rate.getMonth() + "@" + rate.getYear());
+                    if (stockRate != null) {
+                        //TODO Study
+                    }
+                }
+                Goodness goodness = new Goodness();
+                goodness.setExt(stock);
+                goodness.setYear(years.get(i));
+                goodness.setCount(rateByMouth.size());
+                //goodness.setNormal(0); TODO get from other place
+                dbHelper.save(goodness);
+            }
+        }
     }
 
     private void calculateIndustryRate() {
