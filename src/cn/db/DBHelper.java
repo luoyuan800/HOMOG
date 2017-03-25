@@ -1,11 +1,11 @@
-package db;
+package cn.db;
 
-import model.Goodness;
-import model.Industry;
-import model.Model;
-import model.Rate;
-import model.Stock;
-import utils.Log;
+import cn.model.Goodness;
+import cn.model.Industry;
+import cn.model.Model;
+import cn.model.Rate;
+import cn.model.Stock;
+import cn.utils.Log;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -30,8 +30,11 @@ public class DBHelper {
     }
 
     public static void main(String... args) throws SQLException {
-        DBHelper db = new DBHelper("homog.db");
-        System.out.println(db.getStockCount());
+        DBHelper db = new DBHelper("homog.cn.db");
+        for(Stock stock : db.queryStock()){
+            Goodness goodness = db.queryGoodnessByYear(stock.getId(), 2016);
+            System.out.println("id: " + stock.getId() + "Count: " + goodness.getCount() + ", normal: " + goodness.getNormal() + ", fix normal: " + goodness.getFix() + "\n");
+        }
         db.close();
     }
 
@@ -61,7 +64,7 @@ public class DBHelper {
                 System.out.println("Finished create database");
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            Log.err(e);
         }
     }
 
@@ -69,7 +72,7 @@ public class DBHelper {
         try {
             connection.close();
         } catch (SQLException e) {
-            e.printStackTrace();
+            Log.err(e);
         }
     }
 
@@ -82,7 +85,7 @@ public class DBHelper {
                 return rs.getInt(1);
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            Log.err(e);
         } finally {
             closeStatement(statement);
         }
@@ -102,7 +105,7 @@ public class DBHelper {
                 stocks.add(stock);
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            Log.err(e);
         } finally {
             closeStatement(statement);
         }
@@ -124,7 +127,7 @@ public class DBHelper {
                 return rate;
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            Log.err(e);
         } finally {
             closeStatement(statement);
         }
@@ -133,7 +136,7 @@ public class DBHelper {
 
     public void save(Rate rate) {
         String sql = "insert into rate (id, yield, ext_id, year, month) values(?,?,?,?,?)";
-        executeSQL(sql, UUID.randomUUID().timestamp(), rate.getYield(), rate.getExt().getId(), rate.getYear(), rate.getMonth());
+        executeSQL(sql, getId(), rate.getYield(), rate.getExt().getId(), rate.getYear(), rate.getMonth());
     }
 
     public List<Industry> queryIndustry() {
@@ -148,7 +151,7 @@ public class DBHelper {
                 industries.add(industry);
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            Log.err(e);
         } finally {
             closeStatement(statement);
         }
@@ -157,7 +160,7 @@ public class DBHelper {
     }
 
     public void save(Stock stock) {
-        executeSQL("insert into stock (id, industry) values(?,?)", getId(), stock.getIndustry());
+        executeSQL("insert into stock (id, industry) values(?,?)", stock.getId(), stock.getIndustry());
     }
 
     public void save(Industry industry) {
@@ -169,12 +172,12 @@ public class DBHelper {
         ArrayList<Integer> years = new ArrayList<>(10);
         try {
             statement = connection.createStatement();
-            ResultSet rs = statement.executeQuery("select year from rate group by year order by year ACES");
+            ResultSet rs = statement.executeQuery("select year from rate group by year order by year DESC");
             while (rs.next()) {
                 years.add(rs.getInt(1));
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            Log.err(e);
         } finally {
             closeStatement(statement);
         }
@@ -194,7 +197,7 @@ public class DBHelper {
                 stocks.add(stock);
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            Log.err(e);
         } finally {
             closeStatement(statement);
         }
@@ -217,7 +220,7 @@ public class DBHelper {
                 rates.add(rate);
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            Log.err(e);
         } finally {
             closeStatement(statement);
         }
@@ -239,7 +242,7 @@ public class DBHelper {
                 return goodness;
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            Log.err(e);
         } finally {
             closeStatement(statement);
         }
@@ -251,7 +254,7 @@ public class DBHelper {
     }
 
     public void save(Goodness goodness) {
-        executeSQL("insert into goodness (id , normal , fix , year , ext_id, count) values(?,?,?.?,?,?)", getId(), goodness.getNormal(), goodness.getFix(), goodness.getYear(), goodness.getExt().getId(), goodness.getCount());
+        executeSQL("insert into goodness (id , normal , fix , year , ext_id, count) values(?,?,?,?,?,?)", getId(), goodness.getNormal(), goodness.getFix(), goodness.getYear(), goodness.getExt().getId(), goodness.getCount());
     }
 
     private void executeSQL(String sql, Object... paras) {
@@ -263,7 +266,7 @@ public class DBHelper {
             }
             statement.execute();
         } catch (Exception e) {
-            e.printStackTrace();
+            Log.err(e);
             Log.err("Failed to insert :" + e.getMessage());
         } finally {
             closeStatement(statement);
@@ -279,7 +282,7 @@ public class DBHelper {
             try {
                 statement.close();
             } catch (SQLException e) {
-                e.printStackTrace();
+                Log.err(e);
             }
         }
     }

@@ -1,4 +1,4 @@
-package model;
+package cn.model;
 
 
 /**
