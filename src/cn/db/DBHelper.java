@@ -2,17 +2,11 @@ package cn.db;
 
 import cn.model.Goodness;
 import cn.model.Industry;
-import cn.model.Model;
 import cn.model.Rate;
 import cn.model.Stock;
 import cn.utils.Log;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -31,41 +25,65 @@ public class DBHelper {
 
     public static void main(String... args) throws SQLException {
         DBHelper db = new DBHelper("homog.cn.db");
-        for(Stock stock : db.queryStock()){
-            Goodness goodness = db.queryGoodnessByYear(stock.getId(), 2016);
-            System.out.println("id: " + stock.getId() + "Count: " + goodness.getCount() + ", normal: " + goodness.getNormal() + ", fix normal: " + goodness.getFix() + "\n");
-        }
+        System.out.println(db.queryStockId());
         db.close();
     }
 
-    private void createDb() {
-        Statement statement;
+    public List<Rate> queryStockRateByIndustryAndDate(String industry, int year, int month) {
+        List<Rate> rates = new ArrayList<>();
+        Statement statement = null;
         try {
-            boolean create = false;
             statement = connection.createStatement();
-            ResultSet rs = null;
-            try {
-                rs = statement.executeQuery("select count(*) from stock");
-            } catch (Exception e) {
-                create = true;
-            } finally {
-                if (rs != null) {
-                    rs.close();
-                }
-            }
-            if (create) {
-                System.out.println("Creating database...");
-                statement.execute("create table stock (id TEXT NOT NULL PRIMARY KEY, industry TEXT)");
-                //rate table use to store both stock and industry's yield(回报率)
-                //We should first record the stock's rate, and then use them to calculate out the industry's rate.
-                statement.execute("create table rate (id TEXT NOT NULL PRIMARY KEY, ext_id TEXT NOT NULL, yield DOUBLE, year INTEGER, month INTEGER)");
-                statement.execute("create table industry (id TEXT NOT NULL PRIMARY KEY, name TEXT)");
-                statement.execute("create table goodness (id TEXT NOT NULL PRIMARY KEY, normal DOUBLE, fix DOUBLE, year INTEGER, ext_id TEXT, count INTEGER)");
-                System.out.println("Finished create database");
+            ResultSet rs = statement.executeQuery("select * from rate where industry = '" + industry + "' and year = " + year + " and month = " + month);
+            while (rs.next()) {
+                Rate rate = new Rate();
+                rate.setId(rs.getString("id"));
+                rate.setIndustry(industry);
+                rate.setMonth(month);
+                rate.setYear(year);
+                rate.setType(0);
+                rate.setYield(rs.getDouble("yield"));
+                rates.add(rate);
             }
         } catch (SQLException e) {
             Log.err(e);
+        } finally {
+            closeStatement(statement);
         }
+        return rates;
+    }
+
+    public Stock queryStockByNumberAndDate(String stockId, int year) {
+        Statement statement = null;
+        try {
+            statement = connection.createStatement();
+            ResultSet rs = statement.executeQuery("select * from stock where number = '" + stockId + "' and year = " + year);
+            if (rs.next()) {
+                return buildStock(rs);
+            }
+        } catch (SQLException e) {
+            Log.err(e);
+        } finally {
+            closeStatement(statement);
+        }
+        return null;
+    }
+
+    public List<Stock> queryStockByIndustryAndDate(String industryId, Integer year) {
+        List<Stock> stocks = new ArrayList<>();
+        Statement statement = null;
+        try {
+            statement = connection.createStatement();
+            ResultSet rs = statement.executeQuery("select * from stock where industry = '" + industryId + "' and year = " + year);
+            while (rs.next()) {
+                stocks.add(buildStock(rs));
+            }
+        } catch (SQLException e) {
+            Log.err(e);
+        } finally {
+            closeStatement(statement);
+        }
+        return stocks;
     }
 
     public void close() {
@@ -92,51 +110,9 @@ public class DBHelper {
         return 0;
     }
 
-    public List<Stock> queryStockByIndustry(String industry) {
-        Statement statement = null;
-        ArrayList<Stock> stocks = new ArrayList<>();
-        try {
-            statement = connection.createStatement();
-            ResultSet rs = statement.executeQuery("select * from Stock where industry = '" + industry + "'");
-            while (rs.next()) {
-                Stock stock = new Stock();
-                stock.setId(rs.getString("id"));
-                stock.setIndustry(rs.getString("industry"));
-                stocks.add(stock);
-            }
-        } catch (SQLException e) {
-            Log.err(e);
-        } finally {
-            closeStatement(statement);
-        }
-        return stocks;
-    }
-
-    public Rate queryRateByExtAndDate(Model ext, int year, int month) {
-        Statement statement = null;
-        try {
-            statement = connection.createStatement();
-            ResultSet rs = statement.executeQuery("select id, yield from rate where ext_id = '" + ext.getId() + "' and year = '" + year + "' and month = '" + month + "'");
-            if (rs.next()) {
-                Rate rate = new Rate();
-                rate.setId(rs.getString("id"));
-                rate.setYear(year);
-                rate.setMonth(month);
-                rate.setYield(rs.getDouble("yield"));
-                rate.setExt(ext);
-                return rate;
-            }
-        } catch (SQLException e) {
-            Log.err(e);
-        } finally {
-            closeStatement(statement);
-        }
-        return null;
-    }
-
     public void save(Rate rate) {
-        String sql = "insert into rate (id, yield, ext_id, year, month) values(?,?,?,?,?)";
-        executeSQL(sql, getId(), rate.getYield(), rate.getExt().getId(), rate.getYear(), rate.getMonth());
+        String sql = "insert into rate (id, yield, ext_id, year, month, industry, type) values(?,?,?,?,?,?,?)";
+        executeSQL(sql, getId(), rate.getYield(), rate.getExt().getId(), rate.getYear(), rate.getMonth(), rate.getIndustry(),rate.getType());
     }
 
     public List<Industry> queryIndustry() {
@@ -160,7 +136,8 @@ public class DBHelper {
     }
 
     public void save(Stock stock) {
-        executeSQL("insert into stock (id, industry) values(?,?)", stock.getId(), stock.getIndustry());
+        stock.setId(getId());
+        executeSQL("insert into stock (id, industry, year, number) values(?,?,?,?)", stock.getId(), stock.getIndustry(), stock.getYear(), stock.getNumber());
     }
 
     public void save(Industry industry) {
@@ -191,10 +168,7 @@ public class DBHelper {
             statement = connection.createStatement();
             ResultSet rs = statement.executeQuery("select * from stock");
             while (rs.next()) {
-                Stock stock = new Stock();
-                stock.setId(rs.getString("id"));
-                stock.setIndustry(rs.getString("industry"));
-                stocks.add(stock);
+                stocks.add(buildStock(rs));
             }
         } catch (SQLException e) {
             Log.err(e);
@@ -204,12 +178,29 @@ public class DBHelper {
         return stocks;
     }
 
-    public List<Rate> getRateByYear(String extId, int year) {
+    public List<String> queryStockId() {
+        Statement statement = null;
+        List<String> stocks = new ArrayList<>();
+        try {
+            statement = connection.createStatement();
+            ResultSet rs = statement.executeQuery("select number from stock group by number");
+            while (rs.next()) {
+                stocks.add(rs.getString("number"));
+            }
+        } catch (SQLException e) {
+            Log.err(e);
+        } finally {
+            closeStatement(statement);
+        }
+        return stocks;
+    }
+
+    public List<Rate> getRateByYear(String extId, int year, int type) {
         List<Rate> rates = new ArrayList<>();
         Statement statement = null;
         try {
             statement = connection.createStatement();
-            ResultSet rs = statement.executeQuery("select * from rate where ext_id = '" + extId + "' and year = " + year);
+            ResultSet rs = statement.executeQuery("select * from rate where ext_id = '" + extId + "' and year = " + year + " and type = " + type);
             while (rs.next()) {
                 Rate rate = new Rate();
                 //rate.setExt(extId);
@@ -217,6 +208,18 @@ public class DBHelper {
                 rate.setMonth(rs.getInt("month"));
                 rate.setYield(rs.getDouble("yield"));
                 rate.setId(rs.getString("id"));
+                switch (type) {
+                    case 0:
+                        Stock stock = new Stock();
+                        stock.setId(extId);
+                        rate.setExt(stock);
+                        break;
+                    case 1:
+                        Industry industry = new Industry();
+                        industry.setId(extId);
+                        rate.setExt(industry);
+                        break;
+                }
                 rates.add(rate);
             }
         } catch (SQLException e) {
@@ -250,11 +253,52 @@ public class DBHelper {
     }
 
     public void update(Goodness goodness) {
-        executeSQL("update goodness set fix = ?, normal = ?, ext_id = ? where id = ?", goodness.getFix(), goodness.getNormal(), goodness.getExt().getId(), goodness.getId());
+        executeSQL("update goodness set fix = ?, normal = ?, ext_id = ? where id = ?",
+                goodness.getFix(), goodness.getNormal(), goodness.getExt().getId(), goodness.getId());
     }
 
     public void save(Goodness goodness) {
-        executeSQL("insert into goodness (id , normal , fix , year , ext_id, count) values(?,?,?,?,?,?)", getId(), goodness.getNormal(), goodness.getFix(), goodness.getYear(), goodness.getExt().getId(), goodness.getCount());
+        executeSQL("insert into goodness (id , normal , fix , year , ext_id, count, industry, type) values(?,?,?,?,?,?,?,?)",
+                getId(), goodness.getNormal(), goodness.getFix(), goodness.getYear(), goodness.getExt().getId(), goodness.getCount(), goodness.getIndustry(), goodness.getType());
+    }
+
+    private Stock buildStock(ResultSet rs) throws SQLException {
+        Stock stock = new Stock();
+        stock.setId(rs.getString("id"));
+        stock.setNumber(rs.getString("number"));
+        stock.setYear(rs.getInt("year"));
+        stock.setIndustry(rs.getString("industry"));
+        return stock;
+    }
+
+    private void createDb() {
+        Statement statement;
+        try {
+            boolean create = false;
+            statement = connection.createStatement();
+            ResultSet rs = null;
+            try {
+                rs = statement.executeQuery("select count(*) from stock");
+            } catch (Exception e) {
+                create = true;
+            } finally {
+                if (rs != null) {
+                    rs.close();
+                }
+            }
+            if (create) {
+                System.out.println("Creating database...");
+                statement.execute("create table stock (id TEXT NOT NULL PRIMARY KEY, industry TEXT, year INTEGER, number TEXT)");
+                //rate table use to store both stock and industry's yield(回报率)
+                //We should first record the stock's rate, and then use them to calculate out the industry's rate.
+                statement.execute("create table rate (id TEXT NOT NULL PRIMARY KEY, ext_id TEXT NOT NULL, yield DOUBLE, year INTEGER, month INTEGER, industry TEXT, type INTEGER)");
+                statement.execute("create table industry (id TEXT NOT NULL PRIMARY KEY, name TEXT)");
+                statement.execute("create table goodness (id TEXT NOT NULL PRIMARY KEY, normal DOUBLE, fix DOUBLE, year INTEGER, ext_id TEXT, count INTEGER, industry TEXT, type INTEGER)");
+                System.out.println("Finished create database");
+            }
+        } catch (SQLException e) {
+            Log.err(e);
+        }
     }
 
     private void executeSQL(String sql, Object... paras) {

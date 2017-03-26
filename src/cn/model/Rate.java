@@ -9,6 +9,8 @@ public class Rate implements Model{
     private int month;
     private int year;
     private double yield;
+    private String industry;
+    private int type;
 
     public String getId() {
         return id;
@@ -48,5 +50,21 @@ public class Rate implements Model{
 
     public void setYield(double yield) {
         this.yield = yield;
+    }
+
+    public String getIndustry() {
+        return industry;
+    }
+
+    public void setIndustry(String industry) {
+        this.industry = industry;
+    }
+
+    public int getType() {
+        return type;
+    }
+
+    public void setType(int type) {
+        this.type = type;
     }
 }

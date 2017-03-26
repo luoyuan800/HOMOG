@@ -10,6 +10,8 @@ public class Goodness implements Model {
     private int year;
     private Model ext;
     private int count;
+    private String industry;
+    private int type;
 
     @Override
     public String getId() {
@@ -58,5 +60,21 @@ public class Goodness implements Model {
 
     public void setCount(int count) {
         this.count = count;
+    }
+
+    public String  getIndustry() {
+        return industry;
+    }
+
+    public void setIndustry(String industry) {
+        this.industry = industry;
+    }
+
+    public int getType() {
+        return type;
+    }
+
+    public void setType(int type) {
+        this.type = type;
     }
 }
