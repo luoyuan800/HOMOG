@@ -8,9 +8,21 @@ import cn.model.Stock;
 import cn.utils.Log;
 import com.dufe.abnormal.service.Regression;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.sql.SQLException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -26,28 +38,8 @@ public class CalculateProcess {
     public CalculateProcess(String db, String data) throws SQLException {
         this.dbHelper = new DBHelper(db);
         dataFile = data;
-        executor = Executors.newFixedThreadPool(10);
+        executor = Executors.newFixedThreadPool(20);
         futures = new HashSet<>();
-    }
-
-    private void calculateIndustryRateOnMonth(Industry industry, int year, int month) {
-        List<Rate> rates = dbHelper.queryStockRateByIndustryAndDate(industry.getId(),year, month);
-        double indRate = 0d;
-        for (Rate rate : rates) {
-            if (rate != null) {
-                indRate += rate.getYield();
-            }
-        }
-        Rate rate = new Rate();
-        rate.setExt(industry);
-        rate.setMonth(month);
-        rate.setYear(year);
-        rate.setType(1);
-        rate.setIndustry(industry.getId());
-        if(!rates.isEmpty()) {
-            rate.setYield(indRate / rates.size());
-        }
-        dbHelper.save(rate);
     }
 
     //数据预处理，将csv个股的回报率文件的数据读入数据库，然后计算行业的月回报率
@@ -65,7 +57,7 @@ public class CalculateProcess {
             List<Integer> years = dbHelper.getYears();
             for (int i = 0; i < years.size() - 2; i++) {
                 Log.info("calculate fix goodness year on " + years.get(i) + " for " + industry.getId());
-                List<Stock> stocks = dbHelper.queryStockByIndustryAndDate(industry.getId(),years.get(i));
+                List<Stock> stocks = dbHelper.queryStockByIndustryAndDate(industry.getId(), years.get(i));
                 double total = 0;
                 for (Stock stock : stocks) {
                     Goodness stockGoodness = dbHelper.queryGoodnessByYear(stock.getId(), years.get(i));
@@ -91,78 +83,95 @@ public class CalculateProcess {
     public void calculateStockFixGoodness() {
         waitForFinished();
         for (Stock stock : dbHelper.queryStock()) {
-            List<Integer> years = dbHelper.getYears();
-            for (int i = 0; i < years.size() - 2; i++) {
-                Log.info("Start to calculate stock fix goodness for " + stock.getNumber() + " on year " + years.get(i));
-                Goodness stockGoodness = dbHelper.queryGoodnessByYear(stock.getId(), years.get(i));
-                if (stockGoodness != null) {
-                    stockGoodness.setExt(stock);
-                    int count = stockGoodness.getCount();
-                    stockGoodness.setFix(1d - ((count - 1d) / (count - 2d)) * (1d - stockGoodness.getNormal()));
-                    dbHelper.update(stockGoodness);
+            Runnable runnable = new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Log.info("Start to calculate stock fix goodness for " + stock.getNumber() + " on year " + stock.getYear());
+                        Goodness stockGoodness = dbHelper.queryGoodnessByYear(stock.getId(), stock.getYear());
+                        if (stockGoodness != null) {
+                            stockGoodness.setExt(stock);
+                            int count = stockGoodness.getCount();
+                            stockGoodness.setFix(1d - ((count - 1d) / (count - 2d)) * (1d - stockGoodness.getNormal()));
+                            dbHelper.update(stockGoodness);
+                        }
+                    }catch (Exception e){
+                        Log.err(e);
+                    } finally {
+                        futures.remove(this);
+                    }
                 }
-            }
+            };
+            futures.add(runnable);
         }
     }
 
     //求个股的拟合优度
     public void calculateStockGoodness() {
-        for (String stockId : dbHelper.queryStockId()) {
+        for (String stockNumber : dbHelper.queryStockNumber()) {
             Runnable command = new Runnable() {
                 @Override
                 public void run() {
                     try {
-                        Log.info("Start to calculate goodness for " + stockId);
+                        Log.info("Start to calculate goodness for " + stockNumber);
                         List<Integer> years = dbHelper.getYears();
                         for (int i = 0; i < years.size() - 2; i++) {
-                            Stock stock = dbHelper.queryStockByNumberAndDate(stockId, years.get(i));
-                            Log.info("Calculate goodness year on " + years.get(i) + " for " + stock.getNumber());
+                            Stock stock = dbHelper.queryStockByNumberAndDate(stockNumber, years.get(i));
                             Map<String, Rate> stockRateByMouth = new HashMap<>();
                             Map<String, Rate> industryRateByMonth = new HashMap<>();
                             ArrayList<String> stockKeyByOrder = new ArrayList<>();
-                            for (Rate rate : dbHelper.getRateByYear(stock.getId(), years.get(i), 0)) {
-                                stockRateByMouth.put(getRateKey(rate), rate);
-                                stockKeyByOrder.add(getRateKey(rate));
+                            if (stock != null) {
+                                Log.info("Calculate goodness year on " + years.get(i) + " for " + stock.getNumber());
+                                for (Rate rate : dbHelper.getRateByYear(stock.getId(), years.get(i), 0)) {
+                                    stockRateByMouth.put(getRateKey(rate), rate);
+                                    stockKeyByOrder.add(getRateKey(rate));
+                                }
+                                for (Rate rate : dbHelper.getRateByYear(stock.getIndustry(), years.get(i), 1)) {
+                                    industryRateByMonth.put(getRateKey(rate), rate);
+                                }
                             }
-                            for (Rate rate : dbHelper.getRateByYear(stock.getIndustry(), years.get(i), 1)) {
-                                industryRateByMonth.put(getRateKey(rate), rate);
+                            stock = dbHelper.queryStockByNumberAndDate(stockNumber, years.get(i + 1));
+                            if (stock != null) {
+                                for (Rate rate : dbHelper.getRateByYear(stock.getId(), years.get(i + 1), 0)) {
+                                    stockRateByMouth.put(getRateKey(rate), rate);
+                                    stockKeyByOrder.add(getRateKey(rate));
+                                }
+                                for (Rate rate : dbHelper.getRateByYear(stock.getIndustry(), years.get(i + 1), 1)) {
+                                    industryRateByMonth.put(getRateKey(rate), rate);
+                                }
                             }
-                            stock = dbHelper.queryStockByNumberAndDate(stockId, years.get(i + 1));
-                            for (Rate rate : dbHelper.getRateByYear(stock.getId(), years.get(i + 1), 0)) {
-                                stockRateByMouth.put(getRateKey(rate), rate);
-                                stockKeyByOrder.add(getRateKey(rate));
+                            stock = dbHelper.queryStockByNumberAndDate(stockNumber, years.get(i + 2));
+                            if (stock != null) {
+                                for (Rate rate : dbHelper.getRateByYear(stock.getId(), years.get(i + 2), 0)) {
+                                    stockRateByMouth.put(getRateKey(rate), rate);
+                                    stockKeyByOrder.add(getRateKey(rate));
+                                }
+                                for (Rate rate : dbHelper.getRateByYear(stock.getIndustry(), years.get(i + 2), 1)) {
+                                    industryRateByMonth.put(getRateKey(rate), rate);
+                                }
                             }
-                            for (Rate rate : dbHelper.getRateByYear(stock.getIndustry(), years.get(i + 1), 1)) {
-                                industryRateByMonth.put(getRateKey(rate), rate);
-                            }
-                            stock = dbHelper.queryStockByNumberAndDate(stockId, years.get(i + 2));
-                            for (Rate rate : dbHelper.getRateByYear(stock.getId(), years.get(i + 2), 0)) {
-                                stockRateByMouth.put(getRateKey(rate), rate);
-                                stockKeyByOrder.add(getRateKey(rate));
-                            }
-                            for (Rate rate : dbHelper.getRateByYear(stock.getIndustry(), years.get(i + 2), 1)) {
-                                industryRateByMonth.put(getRateKey(rate), rate);
-                            }
-                            stock = dbHelper.queryStockByNumberAndDate(stockId, years.get(i));
+                            stock = dbHelper.queryStockByNumberAndDate(stockNumber, years.get(i));
                             double[][] industryYield = new double[stockRateByMouth.size()][1];//行业收益率作为因变量
                             double[] stockYield = new double[stockRateByMouth.size()];//个股收益率作为变量结果
                             double[] vars = new double[2];//回归系数
                             for (int y = 0; y < stockKeyByOrder.size(); y++) {
                                 Rate stockRate = stockRateByMouth.get(stockKeyByOrder.get(y));
                                 Rate industryRate = industryRateByMonth.get(stockKeyByOrder.get(y));
-                                if (stockRate != null && industryRate!=null) {
+                                if (stockRate != null && industryRate != null) {
                                     industryYield[y][0] = industryRate.getYield();
-                                    stockYield[i] = stockRate.getYield();
+                                    stockYield[y] = stockRate.getYield();
                                 }
                             }
                             Regression.LineRegression(industryYield, stockYield, vars, 1, stockKeyByOrder.size());
-                            Log.info("Stock " + stockId + " on " + years.get(i) + " regression var: " + Arrays.toString(vars));
+                            Log.info("Stock " + stockNumber + " on " + years.get(i) + " regression var: " + Arrays.toString(vars));
                             Goodness goodness = new Goodness();
                             goodness.setExt(stock);
                             goodness.setYear(years.get(i));
-                            goodness.setCount(stockRateByMouth.size());
+                            goodness.setCount(stockKeyByOrder.size());
                             goodness.setIndustry(stock.getIndustry());
                             goodness.setType(0);
+                            goodness.setIntercept(vars[0]);
+                            goodness.setCoefficient(vars[1]);
                             double stockTotalYield = 0;
                             for (int j = 0; j < stockKeyByOrder.size(); j++) {
                                 stockTotalYield = stockTotalYield + stockYield[j];
@@ -177,19 +186,16 @@ public class CalculateProcess {
                             dbHelper.save(goodness);
                         }
                     } catch (Exception e) {
-                        Log.err(e);
+                        Log.err("Calculate goodness error for " + stockNumber, e);
                     } finally {
                         futures.remove(this);
                     }
                 }
+
             };
             futures.add(command);
             executor.execute(command);
         }
-    }
-
-    private String getRateKey(Rate rate) {
-        return rate.getMonth() + "@" + rate.getYear();
     }
 
     public void close() {
@@ -220,22 +226,11 @@ public class CalculateProcess {
                 }
                 writer.flush();
                 writer.close();
-            }else{
+            } else {
                 Log.err("failed to output result");
             }
         } catch (IOException e) {
             e.printStackTrace();
-        }
-    }
-
-    private void waitForFinished() {
-        while (!futures.isEmpty()) {
-            Log.info("There are still " + futures.size() + " task for caluculate goodness!");
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                Log.err(e);
-            }
         }
     }
 
@@ -246,8 +241,43 @@ public class CalculateProcess {
         for (int year : years) {
             for (int month = 1; month < 13; month++) {
                 for (Industry industry : industries) {
-                    calculateIndustryRateOnMonth(industry, year, month);
+                        calculateIndustryRateOnMonth(industry, year, month);
                 }
+            }
+        }
+    }
+
+    private void calculateIndustryRateOnMonth(Industry industry, int year, int month) {
+        List<Rate> rates = dbHelper.queryStockRateByIndustryAndDate(industry.getId(), year, month);
+        double indRate = 0d;
+        for (Rate rate : rates) {
+            if (rate != null) {
+                indRate += rate.getYield();
+            }
+        }
+        Rate rate = new Rate();
+        rate.setExt(industry);
+        rate.setMonth(month);
+        rate.setYear(year);
+        rate.setType(1);
+        rate.setIndustry(industry.getId());
+        if (!rates.isEmpty()) {
+            rate.setYield(indRate / rates.size());
+        }
+        dbHelper.save(rate);
+    }
+
+    private String getRateKey(Rate rate) {
+        return rate.getMonth() + "@" + rate.getYear();
+    }
+
+    private void waitForFinished() {
+        while (!futures.isEmpty()) {
+            Log.info("There are still " + futures.size() + " task for caluculate goodness!");
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                Log.err(e);
             }
         }
     }
@@ -263,9 +293,9 @@ public class CalculateProcess {
                 line = bufferedReader.readLine();
                 if (line != null) {
                     String[] data = line.split(",");
-                    if (data.length >= 4 && data[2]!=null && !data[2].isEmpty()) {
-                        int year ;
-                        int month ;
+                    if (data.length >= 4 && data[2] != null && !data[2].isEmpty()) {
+                        int year;
+                        int month;
                         String[] ym = data[1].split("-");//Data should format as 2010-12
                         if (ym.length >= 2) {
                             year = Integer.parseInt(ym[0]);

@@ -12,6 +12,8 @@ public class Goodness implements Model {
     private int count;
     private String industry;
     private int type;
+    private double intercept;
+    private double coefficient;
 
     @Override
     public String getId() {
@@ -76,5 +78,21 @@ public class Goodness implements Model {
 
     public void setType(int type) {
         this.type = type;
+    }
+
+    public double getIntercept() {
+        return intercept;
+    }
+
+    public void setIntercept(double intercept) {
+        this.intercept = intercept;
+    }
+
+    public double getCoefficient() {
+        return coefficient;
+    }
+
+    public void setCoefficient(double coefficient) {
+        this.coefficient = coefficient;
     }
 }

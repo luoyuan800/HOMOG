@@ -18,14 +18,14 @@ public class DBHelper {
     private final Connection connection;
 
     public DBHelper(String dbFile) throws SQLException {
-        System.out.println("Init database");
+        Log.info("Init database");
         connection = DriverManager.getConnection("jdbc:sqlite:" + dbFile);
         createDb();
     }
 
     public static void main(String... args) throws SQLException {
         DBHelper db = new DBHelper("homog.cn.db");
-        System.out.println(db.queryStockId());
+        System.out.println(db.queryStockNumber());
         db.close();
     }
 
@@ -34,7 +34,7 @@ public class DBHelper {
         Statement statement = null;
         try {
             statement = connection.createStatement();
-            ResultSet rs = statement.executeQuery("select * from rate where industry = '" + industry + "' and year = " + year + " and month = " + month);
+            ResultSet rs = statement.executeQuery("select * from rate where industry = '" + industry + "' and year = " + year + " and month = " + month + " and type = " + 0);
             while (rs.next()) {
                 Rate rate = new Rate();
                 rate.setId(rs.getString("id"));
@@ -178,7 +178,7 @@ public class DBHelper {
         return stocks;
     }
 
-    public List<String> queryStockId() {
+    public List<String> queryStockNumber() {
         Statement statement = null;
         List<String> stocks = new ArrayList<>();
         try {
@@ -258,8 +258,9 @@ public class DBHelper {
     }
 
     public void save(Goodness goodness) {
-        executeSQL("insert into goodness (id , normal , fix , year , ext_id, count, industry, type) values(?,?,?,?,?,?,?,?)",
-                getId(), goodness.getNormal(), goodness.getFix(), goodness.getYear(), goodness.getExt().getId(), goodness.getCount(), goodness.getIndustry(), goodness.getType());
+        executeSQL("insert into goodness (id , normal , fix , year , ext_id, count, industry, type, intercept, coefficient) values(?,?,?,?,?,?,?,?,?,?)",
+                getId(), goodness.getNormal(), goodness.getFix(), goodness.getYear(), goodness.getExt().getId(),
+                goodness.getCount(), goodness.getIndustry(), goodness.getType(), goodness.getIntercept(), goodness.getCoefficient());
     }
 
     private Stock buildStock(ResultSet rs) throws SQLException {
@@ -293,13 +294,15 @@ public class DBHelper {
                 //We should first record the stock's rate, and then use them to calculate out the industry's rate.
                 statement.execute("create table rate (id TEXT NOT NULL PRIMARY KEY, ext_id TEXT NOT NULL, yield DOUBLE, year INTEGER, month INTEGER, industry TEXT, type INTEGER)");
                 statement.execute("create table industry (id TEXT NOT NULL PRIMARY KEY, name TEXT)");
-                statement.execute("create table goodness (id TEXT NOT NULL PRIMARY KEY, normal DOUBLE, fix DOUBLE, year INTEGER, ext_id TEXT, count INTEGER, industry TEXT, type INTEGER)");
-                System.out.println("Finished create database");
+                statement.execute("create table goodness (id TEXT NOT NULL PRIMARY KEY, normal DOUBLE, fix DOUBLE, " +
+                        "year INTEGER, ext_id TEXT, count INTEGER, industry TEXT, type INTEGER, intercept DOUBLE, coefficient DOUBLE)");
+                Log.info("Finished create database");
             }
         } catch (SQLException e) {
             Log.err(e);
         }
     }
+
 
     private void executeSQL(String sql, Object... paras) {
         PreparedStatement statement = null;
