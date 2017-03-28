@@ -35,6 +35,10 @@ public class CalculateProcess {
     private ExecutorService executor;
     private Set<Runnable> futures;
 
+    public DBHelper getDbHelper(){
+        return dbHelper;
+    }
+
     public CalculateProcess(String db, String data) throws SQLException {
         this.dbHelper = new DBHelper(db);
         dataFile = data;
@@ -52,57 +56,83 @@ public class CalculateProcess {
 
     //求行业修正拟合优化度，用个股的修正拟合优度求平均值
     public void calculateIndustryFixGoodness() {
+        waitForFinished();
         Log.info("Start calculate industry fix goodness");
         for (Industry industry : dbHelper.queryIndustry()) {
             List<Integer> years = dbHelper.getYears();
             for (int i = 0; i < years.size() - 2; i++) {
-                Log.info("calculate fix goodness year on " + years.get(i) + " for " + industry.getId());
-                List<Stock> stocks = dbHelper.queryStockByIndustryAndDate(industry.getId(), years.get(i));
-                double total = 0;
-                for (Stock stock : stocks) {
-                    Goodness stockGoodness = dbHelper.queryGoodnessByYear(stock.getId(), years.get(i));
-                    if (stockGoodness != null) {
-                        stockGoodness.setExt(stock);
-                        total += stockGoodness.getFix();
+                Integer year = years.get(i);
+                Runnable runnable = new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            calculateFixForIndustry(year, industry);
+                        }catch (Exception e){
+                            Log.err("Error while calculate fix for industry " + industry.getId() + " on " + year, e);
+                        } finally {
+                            futures.remove(this);
+                        }
                     }
-                }
-                total /= stocks.size();
-                Goodness goodness = new Goodness();
-                goodness.setFix(total);
-                goodness.setExt(industry);
-                goodness.setYear(years.get(i));
-                goodness.setCount(36);
-                goodness.setIndustry(industry.getId());
-                goodness.setType(1);
-                dbHelper.save(goodness);
+                };
+                futures.add(runnable);
+                executor.execute(runnable);
+
             }
         }
+    }
+
+    private void calculateFixForIndustry(Integer year, Industry industry) {
+        Log.info("calculate fix goodness year on " + year + " for " + industry.getId());
+        List<Stock> stocks = dbHelper.queryStockByIndustryAndDate(industry.getId(), year);
+        double total = 0;
+        for (Stock stock : stocks) {
+            Goodness stockGoodness = dbHelper.queryGoodnessByYear(stock.getId(), year);
+            if (stockGoodness != null) {
+                stockGoodness.setExt(stock);
+                total += stockGoodness.getFix();
+            }
+        }
+        total /= stocks.size();
+        Goodness goodness = new Goodness();
+        goodness.setFix(total);
+        goodness.setExt(industry);
+        goodness.setYear(year);
+        goodness.setCount(36);
+        goodness.setIndustry(industry.getId());
+        goodness.setType(1);
+        dbHelper.save(goodness);
     }
 
     //求个股的的修正拟合优度
     public void calculateStockFixGoodness() {
         waitForFinished();
+        Log.info("Start calculate stock fix goodness");
         for (Stock stock : dbHelper.queryStock()) {
             Runnable runnable = new Runnable() {
                 @Override
                 public void run() {
                     try {
-                        Log.info("Start to calculate stock fix goodness for " + stock.getNumber() + " on year " + stock.getYear());
-                        Goodness stockGoodness = dbHelper.queryGoodnessByYear(stock.getId(), stock.getYear());
-                        if (stockGoodness != null) {
-                            stockGoodness.setExt(stock);
-                            int count = stockGoodness.getCount();
-                            stockGoodness.setFix(1d - ((count - 1d) / (count - 2d)) * (1d - stockGoodness.getNormal()));
-                            dbHelper.update(stockGoodness);
-                        }
+                        calculateFixForStock(stock);
                     }catch (Exception e){
-                        Log.err(e);
+                        Log.err("Error calculate fix for " + stock.getNumber() + " on " + stock.getYear(), e);
                     } finally {
                         futures.remove(this);
                     }
                 }
             };
             futures.add(runnable);
+            executor.execute(runnable);
+        }
+    }
+
+    public void calculateFixForStock(Stock stock) {
+        Log.info("Start to calculate stock fix goodness for " + stock.getNumber() + " on year " + stock.getYear());
+        Goodness stockGoodness = dbHelper.queryGoodnessByYear(stock.getId(), stock.getYear());
+        if (stockGoodness != null) {
+            stockGoodness.setExt(stock);
+            int count = stockGoodness.getCount();
+            stockGoodness.setFix(1d - ((count - 1d) / (count - 2d)) * (1d - stockGoodness.getNormal()));
+            dbHelper.update(stockGoodness);
         }
     }
 
@@ -151,39 +181,41 @@ public class CalculateProcess {
                                 }
                             }
                             stock = dbHelper.queryStockByNumberAndDate(stockNumber, years.get(i));
-                            double[][] industryYield = new double[stockRateByMouth.size()][1];//行业收益率作为因变量
-                            double[] stockYield = new double[stockRateByMouth.size()];//个股收益率作为变量结果
-                            double[] vars = new double[2];//回归系数
-                            for (int y = 0; y < stockKeyByOrder.size(); y++) {
-                                Rate stockRate = stockRateByMouth.get(stockKeyByOrder.get(y));
-                                Rate industryRate = industryRateByMonth.get(stockKeyByOrder.get(y));
-                                if (stockRate != null && industryRate != null) {
-                                    industryYield[y][0] = industryRate.getYield();
-                                    stockYield[y] = stockRate.getYield();
+                            if(stock!=null){
+                                double[][] industryYield = new double[stockRateByMouth.size()][1];//行业收益率作为因变量
+                                double[] stockYield = new double[stockRateByMouth.size()];//个股收益率作为变量结果
+                                double[] vars = new double[2];//回归系数
+                                for (int y = 0; y < stockKeyByOrder.size(); y++) {
+                                    Rate stockRate = stockRateByMouth.get(stockKeyByOrder.get(y));
+                                    Rate industryRate = industryRateByMonth.get(stockKeyByOrder.get(y));
+                                    if (stockRate != null && industryRate != null) {
+                                        industryYield[y][0] = industryRate.getYield();
+                                        stockYield[y] = stockRate.getYield();
+                                    }
                                 }
+                                Regression.LineRegression(industryYield, stockYield, vars, 1, stockKeyByOrder.size());
+                                Log.info("Stock " + stockNumber + " on " + years.get(i) + " regression var: " + Arrays.toString(vars));
+                                Goodness goodness = new Goodness();
+                                goodness.setExt(stock);
+                                goodness.setYear(years.get(i));
+                                goodness.setCount(stockKeyByOrder.size());
+                                goodness.setIndustry(stock.getIndustry());
+                                goodness.setType(0);
+                                goodness.setIntercept(vars[0]);
+                                goodness.setCoefficient(vars[1]);
+                                double stockTotalYield = 0;
+                                for (int j = 0; j < stockKeyByOrder.size(); j++) {
+                                    stockTotalYield = stockTotalYield + stockYield[j];
+                                }
+                                double stockYieldAvg = stockTotalYield / stockKeyByOrder.size();
+                                double ei = 0, yi = 0;
+                                for (int j = 0; j < stockKeyByOrder.size(); j++) {
+                                    ei = ei + Math.pow(stockYield[j] - (vars[0] + vars[1] * industryYield[j][0]), 2);
+                                    yi = yi + Math.pow(stockYield[j] - stockYieldAvg, 2);
+                                }
+                                goodness.setNormal(1 - (ei / yi));
+                                dbHelper.save(goodness);
                             }
-                            Regression.LineRegression(industryYield, stockYield, vars, 1, stockKeyByOrder.size());
-                            Log.info("Stock " + stockNumber + " on " + years.get(i) + " regression var: " + Arrays.toString(vars));
-                            Goodness goodness = new Goodness();
-                            goodness.setExt(stock);
-                            goodness.setYear(years.get(i));
-                            goodness.setCount(stockKeyByOrder.size());
-                            goodness.setIndustry(stock.getIndustry());
-                            goodness.setType(0);
-                            goodness.setIntercept(vars[0]);
-                            goodness.setCoefficient(vars[1]);
-                            double stockTotalYield = 0;
-                            for (int j = 0; j < stockKeyByOrder.size(); j++) {
-                                stockTotalYield = stockTotalYield + stockYield[j];
-                            }
-                            double stockYieldAvg = stockTotalYield / stockKeyByOrder.size();
-                            double ei = 0, yi = 0;
-                            for (int j = 0; j < stockKeyByOrder.size(); j++) {
-                                ei = ei + Math.pow(stockYield[j] - (vars[0] + vars[1] * industryYield[j][0]), 2);
-                                yi = yi + Math.pow(stockYield[j] - stockYieldAvg, 2);
-                            }
-                            goodness.setNormal(1 - (ei / yi));
-                            dbHelper.save(goodness);
                         }
                     } catch (Exception e) {
                         Log.err("Calculate goodness error for " + stockNumber, e);
@@ -208,7 +240,7 @@ public class CalculateProcess {
         try {
             waitForFinished();
             File file = new File(fileName);
-            file.deleteOnExit();
+            //file.deleteOnExit();
             if (file.createNewFile()) {
                 BufferedWriter writer = new BufferedWriter(new FileWriter(file));
                 writer.write("行业代码,2016年产业同质化值,2015,2014,2013,2012");
