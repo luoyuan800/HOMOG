@@ -3,8 +3,8 @@ package com.dufe.abnormal.service;
 /*************************************************************************************   
  * @author    
  *   
- *     
- *     
+ * 匿名
+ * 声明：这部分代码不是本人（luoyuan）编写的，所以该部分代码版权归原作者所有。并且本人不承受该代码相关的任何权益和责任。
  *    
  ******************************************************************************/     
      
@@ -32,11 +32,11 @@ public  class  Regression
     *     k0,k1,....,kn为回归系数，该函数就是要根据一组样本（Xi1,Xi2,...Xin,Yi）i=1,2,...,m[m个样本]，根据最小二乘法得原则，计算出   
     *     最佳得回归分析系数k0,k1,....,kn,从而得到线性回归分析模型，该模型稍加扩展，就可以推广到非线性回归模型   
     *输入参数:   
-    *    @param  double[][]  X  自变量样本集   
-    *    @param  double[]    Y  变量结果集   
-    *    @param  double[]   K  回归系数   
-    *    @param  int  n  回归变量个数   
-    *    @param  int  m  样本个数   
+    *    @param   X  自变量样本集
+    *    @param     Y  变量结果集
+    *    @param     K  回归系数
+    *    @param    n  回归变量个数
+    *    @param    m  样本个数
     *输出参数：   
     *    @return double result  0:失败，其他：成功   
     ****************************************************************************************/     
@@ -48,15 +48,14 @@ public  class  Regression
                                             int m    
                                         )     
     {     
-        double result = 0 ;     
+        double result ;
              
         /*   
         *线性回归问题，最终转换为解一个对称线性方程组的求解问题   
         *线性方程组的系数矩阵为n+1*n+1,常数矩阵为n+1*1   
         */     
         int  XLen = n+1;     
-        int  YLen = 1;     
-        int i,j,k;     
+        int i,j,k;
         double[][]  coeffX = new double[XLen][XLen];     
         double[][]  constY = new double[XLen][1];     
         double[][]  resultK = new double[XLen][1];     
@@ -116,213 +115,6 @@ public  class  Regression
         }     
         return result;     
     }     
-     
-    /*****************************************************************************************   
-    *模型名称：样本自优化线性回归   
-    *简要说明：该模型是对简单线性回归模型的改良,其基本的考虑是所提供的样本数据中可能有些异常点使得模型的精度大大降低，系统通过一个度量函数自动   
-    *         找那种对模型的拟合度最差的样本点，然后去掉该样本点再进行回归运算.本模型用实际值与模型预测值之间的平均偏差作为度量模型准确性的效   
-    *         用函数。   
-    *         如果平均偏差减少，标识模型在去掉噪声数据后模型拟合的效果增加，否则停止继续优化的步骤。另外，无论如何优化，都必须至少保留样本保有率   
-    *         所确定的最少样本个数   
-    *注：该模型尚未得到理论论证，是作者自己的经验总结   
-    *函数参数:   
-    *    @param  double[][]  X  自变量样本集   
-    *    @param  double[]    Y  变量结果集   
-    *    @param  int  n  回归变量个数   
-    *    @param  double[]   K  最终回归系数（返回）   
-    *    @param  int  m  样本个数   
-    *    @param   double retainRate  样本最低保有率   
-    *    @param  int[] LossPoint 被丢弃的样本点(返回)   
-    *输出参数：   
-    *    @return double res  -1:失败，1：成功   
-    *******************************************************************************************/     
-    public static  double optLineRegression( double[][] X,     
-                                             double[] Y,     
-                                             double[] K,     
-                                             int n,     
-                                             int m,     
-                                             double retainRate ,     
-                                             int[] LossPoint){     
-             
-        double res = -1;     
-        if(n<1||m<1){     
-            //System.out.println("The parameter is not normal ,please check it\n");     
-            return res;          
-        }     
-        if(retainRate>=1.0||retainRate<=0.0){     
-            //System.out.println("The retain parameter is not in 0 and 1 \n");     
-            return res;     
-        }     
-             
-        //必须确保的最小样本个数     
-         
-        Double Dtemp = new Double(m*retainRate);     
-        int minsample = Dtemp.intValue();      
-     
-     
-        //被丢弃的样本点的个数     
-     
-        int lossnum =0 ;     
-     
-        int[] LossPointTemp = new int[m];     
-     
-         
-        //进行第一次回归     
-     
-        double temp = LineRegression(X,Y, K,n,m);      
-        if(temp == 0){     
-            //System.out.println("The regression operation is failed\n");     
-            return res;          
-        }     
-     
-        //第一次的平均误差     
-     
-        double ErrorStd = avgerror(X, Y, K,n, m);     
-     
-        double[][] SampleX = X;     
-        double[]   SampleY = Y;     
-        double[]    CoeffK = K;     
-        int SampleNum = m;     
-     
-        /*   
-        *记载样本位置的变化情况   
-        */     
-        int[] change = new int[m];     
-        for(int k=0;k<m;k++)     
-            change[k]=k;     
-        int index_max = -1;     
-     
-        for (int i=m;i>minsample ;i-- )     
-        {     
-            /*   
-            *找当前回归样本中的误差最大的样本index。   
-            */     
-            index_max = maxErrorIndex(SampleX,SampleY,CoeffK,n,SampleNum);     
-     
-            if(index_max == -1)     
-                return -1;     
-     
-            /*   
-            *第index_max为误差最大样本，去掉该样本   
-            */     
-     
-            int Loss = change[index_max];     
-            lossnum +=1;     
-            SampleNum -=1;     
-     
-     
-            double[][] SampleXTemp = SampleX;     
-            SampleX = new double[SampleNum][n];     
-     
-            double[] SampleYTemp = SampleY;     
-            SampleY  = new double[SampleNum];     
-     
-            for(int j= 0;j<index_max;j++){     
-                for(int k=0;k<n;k++)     
-                {     
-                SampleX[j][k]=SampleXTemp[j+1][k];     
-                }     
-                SampleY[j]=SampleYTemp[j];     
-            }     
-     
-            for(int j= index_max;j<SampleNum;j++){     
-                for(int k=0;k<n;k++){     
-                    SampleX[j][k]=SampleXTemp[j+1][k];     
-                }     
-                SampleY[j] = SampleYTemp[j+1];     
-                change[j] = change[j+1];     
-     
-            }     
-     
-            /*   
-            *利用新的样本进行回归   
-            */     
-            res=LineRegression(SampleX,SampleY,CoeffK,n,SampleNum);     
-     
-            /*   
-            *比较新的预测模型误差与老模型的误差，如果没有改良，结束，否则，记载相关结果，并继续   
-            */     
-     
-            double  ErrorOpt = avgerror(SampleX,SampleY,CoeffK,n,SampleNum);     
-     
-            if (ErrorOpt>=ErrorStd)//优化过程没有任何改良     
-            {     
-                return  1;     
-            }     
-            else     
-            {     
-                 
-            /*   
-            *记载样本删减情况，记载回归系数   
-            */     
-            LossPoint[m-i] = Loss;     
-     
-            K=CoeffK;     
-                             
-            }     
-        }     
-        return 1;                
-    }     
-     
-    /************************************************************************************   
-    *简要说明：计算回归模型的平均误差   
-    *输入参数:   
-    *    @param  double[][]  X  自变量样本集   
-    *    @param  double[]    Y  变量结果集   
-    *    @param  int  n  回归变量个数   
-    *    @param  double[]   K  回归系数   
-    *    @param  int  m  样本个数   
-    *输出参数：   
-    *    @return double Ierror ：-1失败 平均误差   
-    *************************************************************************************/     
-    public static double avgerror(double[][] X,double[] Y,double[] K,int n,int m){     
-        double res = -1;     
-        /*   
-        *YF用于存放模型的预测结果   
-        */     
-        double[] YF = new double[m];      
-        for(int i=0;i<m;i++){     
-            YF[i] = K[0];      
-            for(int j=0;j<n;j++)     
-                YF[i]+=X[i][j]*K[j+1];               
-        }     
-             
-        /*   
-        *计算初始预测与真实值的误差（平均维和距）   
-        */     
-        res = Base.dimaddavg(Y,YF);      
-        return res;     
-    }     
-     
-     
-    /************************************************************************************   
-    *简要说明：计算回归模型的误差最大的样本点的index_id   
-    *输入参数:   
-    *    @param  double[][]  X  自变量样本集   
-    *    @param  double[]    Y  变量结果集   
-    *    @param  int  n  回归变量个数   
-    *    @param  double[]   K  回归系数   
-    *    @param  int  m  样本个数   
-    *输出参数：   
-    *    @return int Index_id ：-1失败    
-    ************************************************************************************/     
-    public static int maxErrorIndex(double[][] X,double[] Y,double[] K,int n,int m){     
-        int index_id = -1;     
-        /*   
-        *YF用于存放模型的预测结果   
-        */     
-        double[] YF = new double[m];      
-        for(int i=0;i<m;i++){     
-            YF[i] = K[0];      
-            for(int j=0;j<n;j++)     
-                YF[i]+=X[i][j]*K[j+1];               
-        }     
-             
-        /*   
-        *计算误差最大的样本点的index   
-        */     
-        index_id = Base.maxerrordim(Y,YF);     
-        return index_id;         
-    }     
+
      
 }     
